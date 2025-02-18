@@ -1,60 +1,93 @@
-import 'dart:html' as html; // Import dart:html
+import 'dart:html' as html;
+import 'dart:ui' as ui; // Needed for registering the HTML element.
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 void main() {
+  // Register the HTML container that will hold our image.
+  // ignore: undefined_prefixed_name
+  ui.platformViewRegistry.registerViewFactory(
+    'image-container',
+        (int viewId) => html.DivElement()..id = 'imageContainer',
+  );
   runApp(const MyApp());
 }
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Flutter Web Image Viewer',
       home: const HomePage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
-
   @override
   State<HomePage> createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
-  final TextEditingController _controller = TextEditingController();
-  String imageUrl = '';
+  final TextEditingController _urlController = TextEditingController();
   bool _isMenuOpen = false;
 
+  /// Loads the image from the URL input and inserts it as an HTML <img> element.
   void _loadImage() {
-    setState(() {
-      imageUrl = _controller.text;
+    String imageUrl = _urlController.text.trim();
+    if (imageUrl.isEmpty) return;
+
+    // Get the container div (registered earlier) by its id.
+    html.Element? container = html.document.getElementById('imageContainer');
+    container?.children.clear();
+
+    // Create an HTML image element.
+    html.ImageElement img = html.ImageElement(src: imageUrl)
+      ..style.maxWidth = '90%'
+      ..style.maxHeight = '90%'
+      ..style.position = 'absolute'
+      ..style.top = '50%'
+      ..style.left = '50%'
+      ..style.transform = 'translate(-50%, -50%)'
+      ..style.cursor = 'pointer'; // Indicate that it is clickable.
+
+    // Add a double-click listener that toggles fullscreen.
+    img.onDoubleClick.listen((event) {
+      if (html.document.fullscreenElement == null) {
+        _enterFullscreenJS();
+      } else {
+        _exitFullscreenJS();
+      }
     });
+
+    container?.append(img);
   }
 
+  /// Enters fullscreen using the browser's JS API.
+  void _enterFullscreenJS() {
+    html.Element? docElement = html.document.documentElement;
+    if (docElement != null && html.document.fullscreenElement == null) {
+      docElement.requestFullscreen();
+    }
+  }
+
+  /// Exits fullscreen using the browser's JS API.
+  void _exitFullscreenJS() {
+    if (html.document.fullscreenElement != null) {
+      html.document.exitFullscreen();
+    }
+  }
+
+  /// Toggle the visibility of the context menu.
   void _toggleMenu() {
     setState(() {
       _isMenuOpen = !_isMenuOpen;
     });
   }
 
-  // Function to toggle fullscreen using JavaScript
-  void _toggleFullScreenJS() {
-    html.Document document = html.window.document;
-    html.Element? element = document.documentElement;
-
-    if (html.document.fullscreenElement != null) {
-      html.document.exitFullscreen(); // Exit fullscreen if already in fullscreen
-    } else {
-      element?.requestFullscreen(); // Enter fullscreen
-    }
-  }
-
-  // Function to close the menu
+  /// Closes the context menu.
   void _closeMenu() {
     if (_isMenuOpen) {
       setState(() {
@@ -67,93 +100,92 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Web Image Viewer')),
-      body: Stack(
-        children: [
-          GestureDetector(
-            onTap: _closeMenu, // Close menu if clicking outside
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
+      // GestureDetector here is used to detect taps outside the context menu.
+      body: GestureDetector(
+        onTap: _closeMenu,
+        child: Column(
+          children: [
+            // URL input field and Load button.
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _controller,
-                          decoration: const InputDecoration(hintText: 'Enter Image URL'),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.arrow_forward),
-                        onPressed: _loadImage,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
                   Expanded(
-                    child: GestureDetector(
-                      onDoubleTap: _toggleFullScreenJS, // Double tap to toggle fullscreen
-                      child: imageUrl.isNotEmpty
-                          ? Image.network(imageUrl, loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) {
-                          return child;
-                        } else {
-                          return Center(
-                            child: CircularProgressIndicator(value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded / (loadingProgress.expectedTotalBytes ?? 1)
-                                : null
-                                : null),
-                          );
-                        }
-                      })
-                          : Center(child: const Text("Enter a valid URL to load an image")),
+                    child: TextField(
+                      controller: _urlController,
+                      decoration: const InputDecoration(
+                        hintText: 'Enter Image URL',
+                        border: OutlineInputBorder(),
+                      ),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _loadImage,
+                    child: const Text('Load'),
                   ),
                 ],
               ),
             ),
-          ),
-          // Context menu when _isMenuOpen is true
+            // HTML container that displays the image.
+            Expanded(
+              child: HtmlElementView(
+                viewType: 'image-container',
+              ),
+            ),
+          ],
+        ),
+      ),
+      // Floating action button and context menu overlay.
+      floatingActionButton: Stack(
+        children: [
+          // Dimmed background overlay when the context menu is open.
           if (_isMenuOpen)
-            GestureDetector(
-              onTap: _closeMenu, // Close menu if clicked outside
-              child: Container(
-                color: Colors.black54, // Dimming the background
-                child: Align(
-                  alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        FloatingActionButton.extended(
-                          onPressed: () {
-                            _toggleFullScreenJS();
-                            _closeMenu(); // Close menu after action
-                          },
-                          label: const Text("Enter fullscreen"),
-                          icon: const Icon(Icons.fullscreen),
-                        ),
-                        const SizedBox(height: 8),
-                        FloatingActionButton.extended(
-                          onPressed: () {
-                            _toggleFullScreenJS();
-                            _closeMenu(); // Close menu after action
-                          },
-                          label: const Text("Exit fullscreen"),
-                          icon: const Icon(Icons.fullscreen_exit),
-                        ),
-                      ],
-                    ),
-                  ),
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _closeMenu,
+                child: Container(
+                  color: Colors.black.withOpacity(0.5),
                 ),
               ),
             ),
-          // Floating "Plus" button
+          // The context menu is positioned above the FAB.
+          if (_isMenuOpen)
+            Positioned(
+              right: 16,
+              bottom: 80, // Adjust this value as needed.
+              child: Material(
+                color: Colors.white,
+                elevation: 4,
+                borderRadius: BorderRadius.circular(8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // "Enter fullscreen" menu button.
+                    TextButton(
+                      onPressed: () {
+                        _enterFullscreenJS();
+                        _closeMenu();
+                      },
+                      child: const Text('Enter fullscreen'),
+                    ),
+                    const Divider(height: 1),
+                    // "Exit fullscreen" menu button.
+                    TextButton(
+                      onPressed: () {
+                        _exitFullscreenJS();
+                        _closeMenu();
+                      },
+                      child: const Text('Exit fullscreen'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          // The Floating Action Button ("Plus" button).
           Positioned(
-            bottom: 16.0,
-            right: 16.0,
+            right: 16,
+            bottom: 16,
             child: FloatingActionButton(
               onPressed: _toggleMenu,
               child: const Icon(Icons.add),
@@ -162,15 +194,5 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
     );
-  }
-
-  void _toggleFullScreen(BuildContext context) {
-    if (MediaQuery.of(context).orientation == Orientation.portrait) {
-      // Switch to fullscreen
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    } else {
-      // Exit fullscreen
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    }
   }
 }
